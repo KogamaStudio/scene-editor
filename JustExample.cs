@@ -2,32 +2,32 @@ using MelonLoader;
 using UnityEngine;
 using System.Collections;
 using System.IO;
-using System.Linq;
+using System.Linq; 
 using Newtonsoft.Json;
 using Il2Cpp;
 using Il2CppMV.Common;
 using Il2CppMV.WorldObject;
 using System;
-using SysGen = System.Collections.Generic;
+using SysGen = System.Collections.Generic; 
 using Il2CppGen = Il2CppSystem.Collections.Generic;
 using Il2CppSys = Il2CppSystem;
 
-[assembly: MelonInfo(typeof(KogamaAnimTool.AnimImporter), "Kogama StopMotion Importer", "1.1.0", "Veni & amuarte")]
+[assembly: MelonInfo(typeof(KogamaAnimTool.AnimImporter), "Kogama StopMotion Importer", "1.2.0", "Veni & amuarte")]
 [assembly: MelonGame("Kogama", "Kogama")]
 
 namespace KogamaAnimTool
 {
-    public class Voxel
-    {
-        public short x, y, z;
-        public byte m;
+    public class Voxel 
+    { 
+        public short x, y, z; 
+        public byte m; 
     }
 
-    public class FrameData
-    {
-        public int id;
-        public float dur;
-        public SysGen.List<Voxel> cubes;
+    public class FrameData 
+    { 
+        public int id; 
+        public float dur; 
+        public SysGen.List<Voxel> cubes; 
     }
 
     public class AnimImporter : MelonMod
@@ -44,7 +44,7 @@ namespace KogamaAnimTool
             {
                 if (!File.Exists(jsonPath))
                 {
-                    MelonLogger.Error("Plik nie istnieje: " + jsonPath);
+                    MelonLogger.Error("file missing bro: " + jsonPath);
                     return;
                 }
 
@@ -56,31 +56,41 @@ namespace KogamaAnimTool
                 }
                 catch (Exception e)
                 {
-                    MelonLogger.Error($"Błąd JSON: {e.Message}");
+                    MelonLogger.Error($"json dead: {e.Message}");
                 }
             }
         }
 
         private IEnumerator BuildAnim(SysGen.List<FrameData> frames)
         {
-            MelonLogger.Msg($"Start importu {frames.Count} klatek...");
-
+            MelonLogger.Msg($"starting import for {frames.Count} frames");
+            
             var game = MVGameControllerBase.Game;
             var wocm = MVGameControllerBase.WOCM;
-            myActorNr = game.LocalPlayer.ActorNr;
-            var avatar = UnityEngine.Object.FindObjectOfType<MVAvatarLocal>();
-            if (avatar == null)
+            var logicalPlayer = game.LocalPlayer;
+            if (logicalPlayer == null) 
             {
-                MelonLogger.Error("Nie znaleziono avatara!");
+                MelonLogger.Error("player null wth");
                 yield break;
             }
+            myActorNr = logicalPlayer.ActorNr;
+            int avatarId = logicalPlayer.WoId;
+            var avatarObj = wocm.GetWorldObjectClient(avatarId);
+            var avatarLocal = avatarObj?.TryCast<MVAvatarLocal>();
 
-            Transform pTr = avatar.transform;
+            if (avatarLocal == null)
+            {
+                MelonLogger.Error("cant find avatar local instance");
+                yield break;
+            }
+            Transform pTr = avatarLocal.transform;
             Vector3 basePos = pTr.position + (pTr.forward * 5);
             Vector3 logicPos = basePos + (pTr.right * 5);
-            spawnHandler = new Action<Il2CppSys.Object, InitializedGameQueryDataEventArgs>(OnSpawned).CastDelegate<Il2CppSys.EventHandler<InitializedGameQueryDataEventArgs>>();
+            spawnHandler = new Action<Il2CppSys.Object, InitializedGameQueryDataEventArgs>(OnSpawned)
+                .CastDelegate<Il2CppSys.EventHandler<InitializedGameQueryDataEventArgs>>();
+                
             game.World.InitializedGameQueryData += spawnHandler;
-            int trigItem = 48;
+            int trigItem = 48; 
             int togItem = 45;
 
             int firstTrigId = -1;
@@ -89,12 +99,12 @@ namespace KogamaAnimTool
             for (int i = 0; i < frames.Count; i++)
             {
                 var f = frames[i];
-                Vector3 currentLogicPos = logicPos + (Vector3.right * (i * 2));
-                MelonLogger.Msg($"Budowanie klatki {i + 1}");
+                Vector3 currentLogicPos = logicPos + (Vector3.right * (i * 2)); 
+                MelonLogger.Msg($"building frame {i+1}");
                 waitingForId = true;
                 var props = new Il2CppGen.Dictionary<Il2CppSys.Object, Il2CppSys.Object>();
-                props.Add(new Il2CppSys.Byte((byte)1), new Il2CppSys.Single(1.0f));
-                props.Add(new Il2CppSys.Byte((byte)3), new Il2CppSys.Int32(game.LocalPlayer.ProfileID));
+                props.Add(new Il2CppSys.Byte((byte)1), new Il2CppSys.Single(1.0f)); 
+                props.Add(new Il2CppSys.Byte((byte)3), new Il2CppSys.Int32(logicalPlayer.ProfileID)); 
 
                 MVGameControllerBase.OperationRequests.RequestBuiltInItem(
                     BuiltInItem.CubeModel,
@@ -117,13 +127,13 @@ namespace KogamaAnimTool
                     Quaternion.identity,
                     true, false, false
                 );
-
+                
                 while (waitingForId) yield return null;
                 int togId = lastSpawnedId;
                 var objLink = new ObjectLink();
                 objLink.objectConnectorWOID = togId;
                 objLink.objectWOID = modelId;
-                objLink.id = 0;
+                objLink.id = 0; 
                 MVGameControllerBase.OperationRequests.AddObjectLink(objLink);
 
                 yield return new WaitForSeconds(0.1f);
@@ -140,9 +150,10 @@ namespace KogamaAnimTool
                 int trigId = lastSpawnedId;
 
                 if (firstTrigId == -1) firstTrigId = trigId;
-                var runData = new Il2CppGen.Dictionary<Il2CppSys.Object, Il2CppSys.Object>();
-                runData.Add(new Il2CppSys.String("duration"), new Il2CppSys.Single(f.dur));
-                MVGameControllerBase.OperationRequests.UpdateWorldObjectRunTimeData(trigId, (Il2CppGen.Dictionary<string, Il2CppSys.Object>)(object)runData);
+                var runData = new Il2CppGen.Dictionary<string, Il2CppSys.Object>();
+                runData.Add("duration", new Il2CppSys.Single(f.dur));
+                var genericData = runData.Cast<Il2CppGen.Dictionary<Il2CppSys.Object, Il2CppSys.Object>>();
+                MVGameControllerBase.OperationRequests.UpdateWorldObjectRunTimeData(trigId, genericData);
                 LinkLogic(trigId, togId);
 
                 if (prevTrigId != -1)
@@ -157,8 +168,9 @@ namespace KogamaAnimTool
                 LinkLogic(prevTrigId, firstTrigId);
             }
             game.World.InitializedGameQueryData -= spawnHandler;
-            MelonLogger.Msg("Gotowe!");
+            MelonLogger.Msg("job done animation ready");
         }
+
         private void OnSpawned(Il2CppSys.Object sender, InitializedGameQueryDataEventArgs e)
         {
             if (e.InstigatorActorNumber == myActorNr)
@@ -177,14 +189,14 @@ namespace KogamaAnimTool
             if (model == null) yield break;
 
             model.MakeUnique();
-
+            
             int counter = 0;
-            int batch = 100;
+            int batch = 80; 
 
             foreach (var v in voxels)
             {
                 var mats = new byte[6];
-                for (int k = 0; k < 6; k++) mats[k] = v.m;
+                for(int k=0; k<6; k++) mats[k] = v.m;
 
                 var cube = new Cube(CubeBase.IdentityByteCorners, mats);
                 model.AddCube(new IntVector(v.x, v.y, v.z), cube);
@@ -194,7 +206,7 @@ namespace KogamaAnimTool
                 {
                     counter = 0;
                     model.HandleDelta();
-                    yield return new WaitForSeconds(0.05f);
+                    yield return new WaitForSeconds(0.5f); 
                 }
             }
             model.HandleDelta();
