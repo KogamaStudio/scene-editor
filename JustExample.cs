@@ -1,238 +1,206 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
 using MelonLoader;
 using UnityEngine;
-using System.Collections;
-using System.IO;
-using System.Linq; 
-using Newtonsoft.Json;
 using Il2Cpp;
 using Il2CppMV.Common;
 using Il2CppMV.WorldObject;
-using System;
-using SysGen = System.Collections.Generic; 
-using Il2CppGen = Il2CppSystem.Collections.Generic;
-using Il2CppSys = Il2CppSystem;
+using Il2CppMV;
+using Newtonsoft.Json;
 
-[assembly: MelonInfo(typeof(KogamaAnimTool.AnimImporter), "Kogama StopMotion Importer", "1.2.0", "Veni & amuarte")]
-[assembly: MelonGame("Kogama", "Kogama")]
+// hell
+// remember its just example code
 
-namespace KogamaAnimTool
+namespace KoGaMaAnimation
 {
-    public class Voxel 
-    { 
-        public short x, y, z; 
-        public byte m; 
-    }
-
-    public class FrameData 
-    { 
-        public int id; 
-        public float dur; 
-        public SysGen.List<Voxel> cubes; 
-    }
-
-    public class AnimImporter : MelonMod
+    public class ObjectAnimationImporter
     {
-        private string jsonPath = @"C:\KogamaExport\anim_data.json";
-        private bool waitingForId = false;
-        private int lastSpawnedId = -1;
-        private int myActorNr = 0;
-        private Il2CppSys.EventHandler<InitializedGameQueryDataEventArgs> spawnHandler;
-
-        public override void OnUpdate()
+        public class TransformFrame
         {
-            if (Input.GetKeyDown(KeyCode.L))
-            {
-                if (!File.Exists(jsonPath))
-                {
-                    MelonLogger.Error("file missing bro: " + jsonPath);
-                    return;
-                }
+            public int id;
+            public float dur;
+            public Vector3 pos;
+            public Quaternion rot;
+        }
+        private static bool _waitingForClone = false;
+        private static int _lastClonedId = -1;
+        private static bool _waitingForLogic = false;
+        private static int _lastLogicId = -1;
 
-                try
-                {
-                    string txt = File.ReadAllText(jsonPath);
-                    var data = JsonConvert.DeserializeObject<SysGen.List<FrameData>>(txt);
-                    MelonCoroutines.Start(BuildAnim(data));
-                }
-                catch (Exception e)
-                {
-                    MelonLogger.Error($"json dead: {e.Message}");
-                }
+        public static void ImportAnimation(int sourceModelId, string jsonPath)
+        {
+            if (!System.IO.File.Exists(jsonPath))
+            {
+                MelonLogger.Error("file not found");
+                return;
             }
+
+            var jsonContent = System.IO.File.ReadAllText(jsonPath);
+            var frames = JsonConvert.DeserializeObject<List<TransformFrame>>(jsonContent);
+            var originalObj = MVGameControllerBase.WOCM.GetWorldObjectClient(sourceModelId);
+
+            if (originalObj == null)
+            {
+                MelonLogger.Error($"cant find object {sourceModelId}");
+                return;
+            }
+
+            MelonCoroutines.Start(BuildRoutine(originalObj, frames));
         }
 
-        private IEnumerator BuildAnim(SysGen.List<FrameData> frames)
+        private static IEnumerator BuildRoutine(MVWorldObjectClient originalObj, List<TransformFrame> frames)
         {
-            MelonLogger.Msg($"starting import for {frames.Count} frames");
-            
-            var game = MVGameControllerBase.Game;
-            var wocm = MVGameControllerBase.WOCM;
-            var logicalPlayer = game.LocalPlayer;
-            if (logicalPlayer == null) 
+            MelonLogger.Msg($"starting clone sequence for {frames.Count} frames");
+
+            int firstTriggerId = -1;
+            int prevTriggerId = -1;
+
+            var worldNetwork = MVGameControllerBase.Game.World.TryCast<WorldNetwork>();
+            if (worldNetwork == null)
             {
-                MelonLogger.Error("player null wth");
+                MelonLogger.Error("cant cast world to worldnetwork");
                 yield break;
             }
-            myActorNr = logicalPlayer.ActorNr;
-            int avatarId = logicalPlayer.WoId;
-            var avatarObj = wocm.GetWorldObjectClient(avatarId);
-            var avatarLocal = avatarObj?.TryCast<MVAvatarLocal>();
 
-            if (avatarLocal == null)
+            var wocmNetwork = worldNetwork.WorldObjectClientManagerNetwork;
+
+            EventHandler<CloneWorldObjectTreeResponseEventArgs> cloneHandler = (sender, e) =>
             {
-                MelonLogger.Error("cant find avatar local instance");
-                yield break;
-            }
-            Transform pTr = avatarLocal.transform;
-            Vector3 basePos = pTr.position + (pTr.forward * 5);
-            Vector3 logicPos = basePos + (pTr.right * 5);
-            spawnHandler = new Action<Il2CppSys.Object, InitializedGameQueryDataEventArgs>(OnSpawned)
-                .CastDelegate<Il2CppSys.EventHandler<InitializedGameQueryDataEventArgs>>();
-                
-            game.World.InitializedGameQueryData += spawnHandler;
-            int trigItem = 48; 
-            int togItem = 45;
+                if (e.Success)
+                {
+                    _lastClonedId = e.RootId;
+                    _waitingForClone = false;
+                }
+            };
+            wocmNetwork.CloneWorldObjectTreeResponse += cloneHandler;
 
-            int firstTrigId = -1;
-            int prevTrigId = -1;
+            EventHandler<InitializedGameQueryDataEventArgs> logicHandler = (sender, e) =>
+            {
+                if (e.InstigatorActorNumber == MVGameControllerBase.Game.LocalPlayer.ActorNr)
+                {
+                    _lastLogicId = e.RootWO.Id;
+                    _waitingForLogic = false;
+                }
+            };
+            MVGameControllerBase.Game.World.InitializedGameQueryData += logicHandler;
 
             for (int i = 0; i < frames.Count; i++)
             {
-                var f = frames[i];
-                Vector3 currentLogicPos = logicPos + (Vector3.right * (i * 2)); 
-                MelonLogger.Msg($"building frame {i+1}");
-                waitingForId = true;
-                var props = new Il2CppGen.Dictionary<Il2CppSys.Object, Il2CppSys.Object>();
-                props.Add(new Il2CppSys.Byte((byte)1), new Il2CppSys.Single(1.0f)); 
-                props.Add(new Il2CppSys.Byte((byte)3), new Il2CppSys.Int32(logicalPlayer.ProfileID)); 
+                var frame = frames[i];
 
-                MVGameControllerBase.OperationRequests.RequestBuiltInItem(
-                    BuiltInItem.CubeModel,
-                    wocm.RootGroup.Id,
-                    props,
-                    basePos,
-                    Quaternion.identity,
-                    Vector3.one,
-                    true, false
-                );
+                _waitingForClone = true;
+                MVGameControllerBase.OperationRequests.CloneWorldObjectTree(originalObj, true, false, false);
 
-                while (waitingForId) yield return null;
-                int modelId = lastSpawnedId;
-                yield return InjectVoxels(modelId, f.cubes);
-                waitingForId = true;
-                MVGameControllerBase.OperationRequests.AddItemToWorld(
-                    togItem,
-                    wocm.RootGroup.Id,
-                    currentLogicPos + Vector3.forward,
-                    Quaternion.identity,
-                    true, false, false
-                );
-                
-                while (waitingForId) yield return null;
-                int togId = lastSpawnedId;
+                float timeout = Time.time + 5.0f;
+                while (_waitingForClone && Time.time < timeout) yield return null;
+
+                if (_waitingForClone)
+                {
+                    MelonLogger.Error("clone timeout");
+                    break;
+                }
+
+                int clonedModelId = _lastClonedId;
+
+                var newPos = new Vector3(frame.pos.x, frame.pos.y, frame.pos.z);
+                var newRot = new Quaternion(frame.rot.x, frame.rot.y, frame.rot.z, frame.rot.w);
+
+                MVGameControllerBase.OperationRequests.UpdateWorldObject(clonedModelId, newPos, QuaternionCompression.ToBytes(newRot), TransformPackageType.Teleport);
+
+                var clonedClient = MVGameControllerBase.WOCM.GetWorldObjectClient(clonedModelId);
+                if (clonedClient != null)
+                {
+                    clonedClient.Position = newPos;
+                    clonedClient.Rotation = newRot;
+                }
+
+                _waitingForLogic = true;
+                CreateLogicItem(45, newPos + Vector3.up * 2);
+                while (_waitingForLogic) yield return null;
+                int togglerId = _lastLogicId;
+
                 var objLink = new ObjectLink();
-                objLink.objectConnectorWOID = togId;
-                objLink.objectWOID = modelId;
-                objLink.id = 0; 
+                objLink.objectConnectorWOID = togglerId;
+                objLink.objectWOID = clonedModelId;
                 MVGameControllerBase.OperationRequests.AddObjectLink(objLink);
 
                 yield return new WaitForSeconds(0.1f);
-                waitingForId = true;
-                MVGameControllerBase.OperationRequests.AddItemToWorld(
-                    trigItem,
-                    wocm.RootGroup.Id,
-                    currentLogicPos,
-                    Quaternion.identity,
-                    true, false, false
-                );
 
-                while (waitingForId) yield return null;
-                int trigId = lastSpawnedId;
+                _waitingForLogic = true;
+                CreateLogicItem(48, newPos + Vector3.up * 4);
+                while (_waitingForLogic) yield return null;
+                int triggerId = _lastLogicId;
 
-                if (firstTrigId == -1) firstTrigId = trigId;
-                var runData = new Il2CppGen.Dictionary<string, Il2CppSys.Object>();
-                runData.Add("duration", new Il2CppSys.Single(f.dur));
-                var genericData = runData.Cast<Il2CppGen.Dictionary<Il2CppSys.Object, Il2CppSys.Object>>();
-                MVGameControllerBase.OperationRequests.UpdateWorldObjectRunTimeData(trigId, genericData);
-                LinkLogic(trigId, togId);
+                if (firstTriggerId == -1) firstTriggerId = triggerId;
 
-                if (prevTrigId != -1)
+                var updateData = new Il2CppSystem.Collections.Generic.Dictionary<Il2CppSystem.Object, Il2CppSystem.Object>();
+
+                var key = (Il2CppSystem.Object)new Il2CppSystem.String("duration");
+                var val = (Il2CppSystem.Object)new Il2CppSystem.Single { m_value = frame.dur }.BoxIl2CppObject();
+                updateData.Add(key, val);
+
+                MVGameControllerBase.OperationRequests.UpdateWorldObjectRunTimeData(triggerId, updateData);
+
+                LinkLogic(triggerId, togglerId);
+
+                if (prevTriggerId != -1)
                 {
-                    LinkLogic(prevTrigId, trigId);
+                    LinkLogic(prevTriggerId, triggerId);
                 }
+                prevTriggerId = triggerId;
 
-                prevTrigId = trigId;
+                yield return new WaitForSeconds(0.2f);
             }
-            if (prevTrigId != -1 && firstTrigId != -1)
+
+            if (prevTriggerId != -1 && firstTriggerId != -1)
             {
-                LinkLogic(prevTrigId, firstTrigId);
+                LinkLogic(prevTriggerId, firstTriggerId);
             }
-            game.World.InitializedGameQueryData -= spawnHandler;
-            MelonLogger.Msg("job done animation ready");
+
+            wocmNetwork.CloneWorldObjectTreeResponse -= cloneHandler;
+            MVGameControllerBase.Game.World.InitializedGameQueryData -= logicHandler;
+            MelonLogger.Msg("import done");
         }
 
-        private void OnSpawned(Il2CppSys.Object sender, InitializedGameQueryDataEventArgs e)
+        private static void CreateLogicItem(int itemId, Vector3 pos)
         {
-            if (e.InstigatorActorNumber == myActorNr)
-            {
-                lastSpawnedId = e.RootWO.Id;
-                waitingForId = false;
-            }
+            MVGameControllerBase.OperationRequests.AddItemToWorld(
+                itemId,
+                MVGameControllerBase.WOCM.RootGroup.Id,
+                pos,
+                Quaternion.identity,
+                true,
+                false,
+                false
+            );
         }
 
-        private IEnumerator InjectVoxels(int mid, SysGen.List<Voxel> voxels)
-        {
-            var obj = MVGameControllerBase.WOCM.GetWorldObjectClient(mid);
-            if (obj == null) yield break;
-
-            var model = obj.TryCast<MVCubeModelInstance>();
-            if (model == null) yield break;
-
-            model.MakeUnique();
-            
-            int counter = 0;
-            int batch = 80; 
-
-            foreach (var v in voxels)
-            {
-                var mats = new byte[6];
-                for(int k=0; k<6; k++) mats[k] = v.m;
-
-                var cube = new Cube(CubeBase.IdentityByteCorners, mats);
-                model.AddCube(new IntVector(v.x, v.y, v.z), cube);
-
-                counter++;
-                if (counter >= batch)
-                {
-                    counter = 0;
-                    model.HandleDelta();
-                    yield return new WaitForSeconds(0.5f); 
-                }
-            }
-            model.HandleDelta();
-            yield return new WaitForSeconds(0.1f);
-        }
-
-        private void LinkLogic(int outId, int inId)
+        private static void LinkLogic(int outputId, int inputId)
         {
             var link = new Link();
-            link.outputWOID = outId;
-            link.inputWOID = inId;
+            link.outputWOID = outputId;
+            link.inputWOID = inputId;
             MVGameControllerBase.OperationRequests.AddLink(link);
         }
     }
-    public static class DelegateExtensions
+}
+
+namespace System.Runtime.CompilerServices
+{
+    internal class IsExternalInit { }
+
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Property | AttributeTargets.Field | AttributeTargets.Event | AttributeTargets.Parameter | AttributeTargets.ReturnValue | AttributeTargets.GenericParameter, AllowMultiple = false, Inherited = false)]
+    public sealed class NullableAttribute : Attribute
     {
-        public static T CastDelegate<T>(this Delegate source) where T : class
+        public readonly byte[] NullableFlags;
+        public NullableAttribute(byte flag)
         {
-            if (source == null) return null;
-            Delegate[] delegates = source.GetInvocationList();
-            if (delegates.Length == 1)
-                return Delegate.CreateDelegate(typeof(T), delegates[0].Target, delegates[0].Method) as T;
-            Delegate[] delegatesDest = new Delegate[delegates.Length];
-            for (int nDelegate = 0; nDelegate < delegates.Length; nDelegate++)
-                delegatesDest[nDelegate] = Delegate.CreateDelegate(typeof(T), delegates[nDelegate].Target, delegates[nDelegate].Method);
-            return Delegate.Combine(delegatesDest) as T;
+            NullableFlags = new byte[] { flag };
+        }
+        public NullableAttribute(byte[] flags)
+        {
+            NullableFlags = flags;
         }
     }
 }
