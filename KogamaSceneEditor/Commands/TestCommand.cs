@@ -16,9 +16,5 @@ internal class TestCommand : Command
     public override void Execute(string[] args)
     {
         int id = int.Parse(args[0]);
-        MelonCoroutines.Start(WorldObjectOperations.CloneObjectWithPosition(id, Vector2.zero, Quaternion.identity, (id) =>
-        {
-            MelonLogger.Msg($"Cloned {id}!");
-        }));
     }
 }

@@ -29,28 +29,28 @@ internal class SceneCommand : Command
     private IEnumerator CreateScene(string jsonFile, int itemId)
     {
         var frames = SceneDataLoader.LoadFromJson(jsonFile);
-        var modelIds = new List<int>();
+        var modelIds = new Dictionary<int, int>();
         var hiderIds = new List<int>();
 
-        foreach (var frame in frames)
+        for (int i = 0; i < frames.Count; i++)
         {
-            int clonedId = -1;
+            int idx = i;
+            var frame = frames[i];
             MelonCoroutines.Start(WorldObjectOperations.AddItemToWorld(itemId, frame.Position.ToVector3(), frame.Rotation.ToQuaternion(), (id) =>
             {
-                clonedId = id;
+                modelIds[idx] = id;
             }));
-            while (clonedId == -1)
-                yield return null;
-
-            modelIds.Add(clonedId);
+            yield return new WaitForSeconds(0.1f);
         }
 
-        MelonCoroutines.Start(CreateLogics(frames, hiderIds));
+        while (modelIds.Count < frames.Count)
+            yield return null;
 
+        MelonCoroutines.Start(CreateLogics(frames, hiderIds));
         while (hiderIds.Count < frames.Count)
             yield return null;
 
-        for (int i = 0; i < modelIds.Count && i < hiderIds.Count; i++)
+        for (int i = 0; i < frames.Count; i++)
             WorldObjectOperations.AddObjectLink(hiderIds[i], modelIds[i]);
     }
 
@@ -65,31 +65,44 @@ internal class SceneCommand : Command
         while (mainId == -1)
             yield return null;
 
+        var delayIds = new Dictionary<int, int>();
+        var hiderIdDict = new Dictionary<int, int>();
+
         for (int i = 0; i < frames.Count; i++)
         {
-            int currentId = -1;
+            int idx = i;
             MelonCoroutines.Start(WorldObjectOperations.AddItemToWorld(ItemIdWWW.DELAY_CUBE, new Vector3(0, 0, i), Quaternion.identity, (id) =>
             {
-                currentId = id;
+                delayIds[idx] = id;
             }));
-            while (currentId == -1)
-                yield return null;
+            yield return new WaitForSeconds(0.05f);
+        }
+        while (delayIds.Count < frames.Count)
+            yield return null;
 
-            WorldObjectOperations.AddLink(mainId, currentId);
-            WorldObjectOperations.SetProperty(currentId, "duration", frames[i].Duration);
-            WorldObjectOperations.SetProperty(currentId, "time", frames[i].Duration * i);
-
-            int currentModelHiderId = -1;
+        for (int i = 0; i < frames.Count; i++)
+        {
+            int idx = i;
             MelonCoroutines.Start(WorldObjectOperations.AddItemToWorld(ItemIdWWW.CUBE_MODEL_HIDER, new Vector3(4, 0, i), Quaternion.identity, (id) =>
             {
-                currentModelHiderId = id;
+                hiderIdDict[idx] = id;
             }));
-            while (currentModelHiderId == -1)
-                yield return null;
-            WorldObjectOperations.AddLink(currentId, currentModelHiderId);
-            hiderIds.Add(currentModelHiderId);
+            yield return new WaitForSeconds(0.05f);
         }
+        while (hiderIdDict.Count < frames.Count)
+            yield return null;
+
+        for (int i = 0; i < frames.Count; i++)
+        {
+            WorldObjectOperations.AddLink(mainId, delayIds[i]);
+            WorldObjectOperations.SetProperty(delayIds[i], "duration", frames[i].Duration);
+            WorldObjectOperations.SetProperty(delayIds[i], "time", frames[i].Duration * i);
+            WorldObjectOperations.AddLink(delayIds[i], hiderIdDict[i]);
+            hiderIds.Add(hiderIdDict[i]);
+        }
+
         float totalDuration = frames.Sum(f => f.Duration);
         WorldObjectOperations.SetProperty(mainId, "duration", totalDuration);
+        WorldObjectOperations.SetProperty(mainId, "time", 0f);
     }
 }
