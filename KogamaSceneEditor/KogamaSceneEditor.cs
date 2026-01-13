@@ -10,7 +10,6 @@ using UnityEngine.TextCore;
 using KogamaSceneEditor.Commands;
 using KogamaModFramework.Data;
 using UnityEngine.UIElements;
-using UnityEngine;
 using KogamaModFramework.Operations;
 
 

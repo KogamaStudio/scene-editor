@@ -59,12 +59,7 @@ internal class SceneCommand : Command
         }
 
         MelonLogger.Msg($"Models created: {modelIds.Count}, Total frames: {allFrames.Count}");
-        foreach (var kvp in modelIds)
-        {
-            MelonLogger.Msg($"modelIds[{kvp.Key}] = {kvp.Value}");
-        }
 
-        MelonLogger.Msg("Starting CreateLogics...");
         MelonCoroutines.Start(CreateLogics(allFrames, hiderIds, modelIds));
         while (hiderIds.Count < allFrames.Count)
             yield return null;
