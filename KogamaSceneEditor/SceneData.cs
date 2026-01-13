@@ -14,6 +14,9 @@ public class FrameData
     [JsonProperty("id")]
     public int Id { get; set; }
 
+    [JsonProperty("model")]
+    public string ModelName { get; set; }
+
     [JsonProperty("dur")]
     public float Duration { get; set; }
 
@@ -55,15 +58,24 @@ public class QuaternionData
     public Quaternion ToQuaternion() => new Quaternion(X, Y, Z, W);
 }
 
+public class ChunkData
+{
+    [JsonProperty("name")]
+    public string Name { get; set; }
+
+    [JsonProperty("frames")]
+    public List<FrameData> Frames { get; set; }
+}
+
+
 public static class SceneDataLoader
 {
-    public static List<FrameData> LoadFromJson(string filename)
+    public static List<ChunkData> LoadChunksFromJson(string filename)
     {
         string jsonPath = Path.Combine(MelonEnvironment.ModsDirectory, filename);
         if (!File.Exists(jsonPath))
-            return new List<FrameData>();
-
+            return new List<ChunkData>();
         string json = File.ReadAllText(jsonPath);
-        return JsonConvert.DeserializeObject<List<FrameData>>(json) ?? new List<FrameData>();
+        return JsonConvert.DeserializeObject<List<ChunkData>>(json) ?? new List<ChunkData>();
     }
 }

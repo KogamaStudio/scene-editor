@@ -37,7 +37,7 @@ public class KogamaSceneEditor : MelonMod
             CommandManager.Register(new TestCommand());
             CommandManager.Register(new SceneCommand());
 
-            KogamaModFramework.UI.ContextMenuManager.AddButton("Copy ItemId", wo => true, wo =>
+            KogamaModFramework.UI.ContextMenuUI.ContextMenuManager.AddButton("Copy ItemId", wo => true, wo =>
             {
                 var psi = new System.Diagnostics.ProcessStartInfo("cmd", $"/c set /p=\"{wo.itemId}\" <nul | clip")
                 {
@@ -51,5 +51,7 @@ public class KogamaSceneEditor : MelonMod
             Initialized = true;
         }
     }
+
+
 }
 

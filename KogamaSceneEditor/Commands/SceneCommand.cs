@@ -17,46 +17,63 @@ internal class SceneCommand : Command
 
     public override void Execute(string[] args)
     {
-        if (args.Length < 2)
+        if (args.Length < 1)
         {
-            TextCommand.NotifyUser("Usage: /scene <jsonfile> <modelId>");
+            TextCommand.NotifyUser("Usage: /scene <jsonfile>");
             return;
         }
-
-        int itemId = int.Parse(args[1]);
-        MelonCoroutines.Start(CreateScene(args[0], itemId));
+        MelonCoroutines.Start(CreateScene(args[0]));
     }
-    private IEnumerator CreateScene(string jsonFile, int itemId)
+
+    private IEnumerator CreateScene(string jsonFile)
     {
-        var frames = SceneDataLoader.LoadFromJson(jsonFile);
-        var modelIds = new Dictionary<int, int>();
+        var chunks = SceneDataLoader.LoadChunksFromJson(jsonFile);
+        var allFrames = new List<FrameData>();
+        var modelIds = new Dictionary<int, List<int>>();
         var hiderIds = new List<int>();
 
-        for (int i = 0; i < frames.Count; i++)
+        foreach (var chunk in chunks)
         {
-            int idx = i;
-            var frame = frames[i];
-            MelonCoroutines.Start(WorldObjectOperations.AddItemToWorld(itemId, frame.Position.ToVector3(), frame.Rotation.ToQuaternion(), (id) =>
+            if (!int.TryParse(chunk.Name.Split('.')[0], out int itemId))
             {
-                modelIds[idx] = id;
-            }));
-            yield return new WaitForSeconds(0.1f);
+                MelonLogger.Msg($"Cannot parse itemId from chunk name: {chunk.Name}");
+                continue;
+            }
+
+            foreach (var frame in chunk.Frames)
+            {
+                allFrames.Add(frame);
+
+                if (!modelIds.ContainsKey(frame.Id))
+                    modelIds[frame.Id] = new List<int>();
+
+                int modelId = -1;
+                MelonCoroutines.Start(WorldObjectOperations.AddItemToWorld(itemId, frame.Position.ToVector3(), frame.Rotation.ToQuaternion(), (id) =>
+                {
+                    modelId = id;
+                    modelIds[frame.Id].Add(id);
+                }));
+                while (modelId == -1)
+                    yield return null;
+            }
         }
 
-        while (modelIds.Count < frames.Count)
-            yield return null;
+        MelonLogger.Msg($"Models created: {modelIds.Count}, Total frames: {allFrames.Count}");
+        foreach (var kvp in modelIds)
+        {
+            MelonLogger.Msg($"modelIds[{kvp.Key}] = {kvp.Value}");
+        }
 
-        MelonCoroutines.Start(CreateLogics(frames, hiderIds));
-        while (hiderIds.Count < frames.Count)
+        MelonLogger.Msg("Starting CreateLogics...");
+        MelonCoroutines.Start(CreateLogics(allFrames, hiderIds, modelIds));
+        while (hiderIds.Count < allFrames.Count)
             yield return null;
-
-        for (int i = 0; i < frames.Count; i++)
-            WorldObjectOperations.AddObjectLink(hiderIds[i], modelIds[i]);
     }
 
-    private IEnumerator CreateLogics(List<FrameData> frames, List<int> hiderIds)
+    private IEnumerator CreateLogics(List<FrameData> frames, List<int> hiderIds, Dictionary<int, List<int>> modelIds)
     {
         MelonLogger.Msg("CreateLogics started");
+
         int mainId = -1;
         MelonCoroutines.Start(WorldObjectOperations.AddItemToWorld(ItemIdWWW.DELAY_CUBE, new Vector3(0, 10, 0), Quaternion.identity, (id) =>
         {
@@ -65,43 +82,66 @@ internal class SceneCommand : Command
         while (mainId == -1)
             yield return null;
 
+        var frameGroups = frames.GroupBy(f => f.Id).ToList();
         var delayIds = new Dictionary<int, int>();
         var hiderIdDict = new Dictionary<int, int>();
 
-        for (int i = 0; i < frames.Count; i++)
+        int groupIndex = 0;
+        foreach (var group in frameGroups)
         {
-            int idx = i;
-            MelonCoroutines.Start(WorldObjectOperations.AddItemToWorld(ItemIdWWW.DELAY_CUBE, new Vector3(0, 0, i), Quaternion.identity, (id) =>
+            int idx = groupIndex;
+            int frameId = group.Key;
+
+            MelonCoroutines.Start(WorldObjectOperations.AddItemToWorld(ItemIdWWW.DELAY_CUBE, new Vector3(0, 0, idx), Quaternion.identity, (id) =>
             {
-                delayIds[idx] = id;
+                delayIds[frameId] = id;
             }));
             yield return new WaitForSeconds(0.05f);
+
+            groupIndex++;
         }
-        while (delayIds.Count < frames.Count)
+        while (delayIds.Count < frameGroups.Count)
             yield return null;
 
-        for (int i = 0; i < frames.Count; i++)
+        groupIndex = 0;
+        foreach (var group in frameGroups)
         {
-            int idx = i;
-            MelonCoroutines.Start(WorldObjectOperations.AddItemToWorld(ItemIdWWW.CUBE_MODEL_HIDER, new Vector3(4, 0, i), Quaternion.identity, (id) =>
+            int idx = groupIndex;
+            int frameId = group.Key;
+
+            MelonCoroutines.Start(WorldObjectOperations.AddItemToWorld(ItemIdWWW.CUBE_MODEL_HIDER, new Vector3(4, 0, idx), Quaternion.identity, (id) =>
             {
-                hiderIdDict[idx] = id;
+                hiderIdDict[frameId] = id;
             }));
             yield return new WaitForSeconds(0.05f);
+
+            groupIndex++;
         }
-        while (hiderIdDict.Count < frames.Count)
+        while (hiderIdDict.Count < frameGroups.Count)
             yield return null;
 
-        for (int i = 0; i < frames.Count; i++)
+        foreach (var group in frameGroups)
         {
-            WorldObjectOperations.AddLink(mainId, delayIds[i]);
-            WorldObjectOperations.SetProperty(delayIds[i], "duration", frames[i].Duration);
-            WorldObjectOperations.SetProperty(delayIds[i], "time", frames[i].Duration * i);
-            WorldObjectOperations.AddLink(delayIds[i], hiderIdDict[i]);
-            hiderIds.Add(hiderIdDict[i]);
+            int frameId = group.Key;
+            var firstFrame = group.First();
+
+            WorldObjectOperations.AddLink(mainId, delayIds[frameId]);
+            WorldObjectOperations.SetProperty(delayIds[frameId], "duration", firstFrame.Duration);
+            WorldObjectOperations.SetProperty(delayIds[frameId], "time", firstFrame.Duration * (frameId - 1));
+            WorldObjectOperations.AddLink(delayIds[frameId], hiderIdDict[frameId]);
+
+            foreach (var frame in group)
+            {
+                foreach (var modelWorldId in modelIds[frame.Id])
+                {
+                    WorldObjectOperations.AddObjectLink(hiderIdDict[frameId], modelWorldId);
+                }
+            }
+
+            hiderIds.Add(hiderIdDict[frameId]);
         }
 
-        float totalDuration = frames.Sum(f => f.Duration);
+        float totalDuration = frames.First().Duration * frameGroups.Count;
         WorldObjectOperations.SetProperty(mainId, "duration", totalDuration);
         WorldObjectOperations.SetProperty(mainId, "time", 0f);
     }
