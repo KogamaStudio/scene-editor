@@ -5,16 +5,21 @@ import mathutils
 def get_transform_data(obj):
     matrix = obj.matrix_world
     loc, rot, scale = matrix.decompose()
+    
     out_pos = {
-        "x": round(loc.x, 4),
-        "y": round(loc.z, 4),
-        "z": round(loc.y, 4)
+        "x": round(loc.x / 8, 4),
+        "y": round(loc.z / 8, 4),
+        "z": round(loc.y / 8, 4)
     }
+    
+    correction = mathutils.Quaternion((0.7071, -0.7071, 0, 0))
+    corrected_rot = rot @ correction
+
     out_rot = {
-        "x": round(rot.x, 4),
-        "y": round(rot.z, 4),
-        "z": round(rot.y, 4),
-        "w": round(rot.w * -1, 4) 
+        "x": round(corrected_rot.x, 4),
+        "y": round(corrected_rot.y, 4),
+        "z": round(corrected_rot.z, 4),
+        "w": round(corrected_rot.w, 4)
     }
     
     return {"pos": out_pos, "rot": out_rot}
