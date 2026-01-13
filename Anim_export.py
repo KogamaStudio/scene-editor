@@ -38,35 +38,43 @@ class OPS_OT_ExportKogamaTransform(bpy.types.Operator):
     def execute(self, context):
         scene = context.scene
         props = scene.kogama_anim_props
-        obj = context.active_object
+        selected_objs = context.selected_objects
         
-        if not obj:
-            self.report({'ERROR'}, "select an object")
+        if not selected_objs:
+            self.report({'ERROR'}, "select at least one object")
             return {'CANCELLED'}
             
         filepath = bpy.path.abspath(props.save_path)
-        frames_data = []
+        all_objects_data = []
         
         start = scene.frame_start
         end = scene.frame_end
         
-        print(f"exporting {obj.name} from {start} to {end}")
-        
-        for f in range(start, end + 1):
-            scene.frame_set(f)
-            t_data = get_transform_data(obj)
+        for obj in selected_objs:
+            print(f"exporting {obj.name} from {start} to {end}")
+            frames_data = []
             
-            frame = {
-                "id": f,
-                "dur": props.frame_dur,
-                "pos": t_data["pos"],
-                "rot": t_data["rot"]
+            for f in range(start, end + 1):
+                scene.frame_set(f)
+                t_data = get_transform_data(obj)
+
+                frame = {
+                    "id": f,
+                    "dur": props.frame_dur,
+                    "pos": t_data["pos"],
+                    "rot": t_data["rot"]
+                }
+                frames_data.append(frame)
+        
+            obj_entry = {
+                "name": obj.name,
+                "frames": frames_data
             }
-            frames_data.append(frame)
+            all_objects_data.append(obj_entry)
             
         try:
             with open(filepath, 'w') as outfile:
-                json.dump(frames_data, outfile)
+                json.dump(all_objects_data, outfile, indent=2)
             self.report({'INFO'}, f"saved to {filepath}")
         except Exception as e:
             self.report({'ERROR'}, str(e))
